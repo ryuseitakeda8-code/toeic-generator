@@ -1,0 +1,154 @@
+import React, { useState } from 'react';
+
+function App() {
+  const [secret, setSecret] = useState('');
+  const [words, setWords] = useState('');
+  const [partStyle, setPartStyle] = useState('Part4');
+  const [cefrLevel, setCefrLevel] = useState('B2');
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const generateTest = async () => {
+    setLoading(true);
+    setResult(null);
+
+    try {
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-App-Secret': secret,
+        },
+        body: JSON.stringify({
+          words: words.split(',').map((w) => w.trim()).filter((w) => w !== ''),
+          partStyle,
+          cefrLevel,
+        }),
+      });
+
+      const raw = await response.text();
+      console.log('RAW RESPONSE:', raw);
+
+      const data = JSON.parse(raw);
+      console.log('PARSED DATA:', data);
+
+      if (!response.ok) {
+        alert(data.error || '生成失敗');
+        return;
+      }
+
+      setResult(data);
+    } catch (error) {
+      console.error(error);
+      alert('通信エラーが発生しました');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const playAudio = () => {
+    if (!result?.full_text) {
+      alert('再生する英文がありません');
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(result.full_text);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.9;
+    window.speechSynthesis.speak(utterance);
+  };
+
+　return (
+  　<div style={{ padding: '20px', maxWidth: '760px', margin: '0 auto', fontFamily: 'sans-serif' }}>
+    　<div style={{ background: 'red', color: 'white', padding: '8px', marginBottom: '12px' }}>
+      　React最新版が反映されています
+    　</div>
+
+　    <h2>TOEIC風 問題ジェネレーター【最新版テスト】</h2>
+      <div style={{ marginBottom: '12px' }}>
+        <input
+          type="password"
+          placeholder="合言葉"
+          value={secret}
+          onChange={(e) => setSecret(e.target.value)}
+          style={{ width: '100%', padding: '8px' }}
+        />
+      </div>
+
+      <div style={{ marginBottom: '12px' }}>
+        <input
+          type="text"
+          placeholder="単語を入力 (例: test)"
+          value={words}
+          onChange={(e) => setWords(e.target.value)}
+          style={{ width: '100%', padding: '8px' }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
+        <div>
+          <label>問題形式</label><br />
+          <select value={partStyle} onChange={(e) => setPartStyle(e.target.value)}>
+            <option value="Part2">Part2</option>
+            <option value="Part4">Part4</option>
+            <option value="Part5">Part5</option>
+          </select>
+        </div>
+
+        <div>
+          <label>CEFR</label><br />
+          <select value={cefrLevel} onChange={(e) => setCefrLevel(e.target.value)}>
+            <option value="A2">A2</option>
+            <option value="B1">B1</option>
+            <option value="B2">B2</option>
+            <option value="C1">C1</option>
+          </select>
+        </div>
+      </div>
+
+      <button onClick={generateTest} disabled={loading}>
+        {loading ? '生成中...' : '問題を生成'}
+      </button>
+
+      <hr style={{ margin: '24px 0' }} />
+
+      <h3>デバッグ表示</h3>
+      <pre style={{ background: '#f5f5f5', padding: '12px', whiteSpace: 'pre-wrap' }}>
+        {JSON.stringify(result, null, 2)}
+      </pre>
+
+      {result && (
+        <div>
+          <h3>完全文</h3>
+          <div style={{ background: '#fffbe6', padding: '10px', borderRadius: '6px', marginBottom: '12px' }}>
+            {result.full_text}
+          </div>
+
+          <button onClick={playAudio} style={{ marginBottom: '20px' }}>
+            🔊 音声を再生
+          </button>
+
+          <h3>問題</h3>
+          {result.questions?.map((q, idx) => (
+            <div key={idx} style={{ marginBottom: '20px', background: '#f9f9f9', padding: '10px' }}>
+              <p><strong>Q{idx + 1}.</strong> {q.blanked_text}</p>
+
+              <h4>英語の選択肢</h4>
+              <ul>
+                {q.english_options?.map((opt, i) => <li key={i}>{opt}</li>)}
+              </ul>
+
+              <h4>日本語の選択肢</h4>
+              <ul>
+                {q.japanese_options?.map((opt, i) => <li key={i}>{opt}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
