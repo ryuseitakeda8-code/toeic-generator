@@ -34,82 +34,81 @@ export async function onRequestPost(context) {
 }
 `;
 
-    const geminiUrl =
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`;
+    const models = [
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite"
+    ];
 
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    let geminiRes;
-    let raw = "";
+    let lastError = null;
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      geminiRes = await fetch(geminiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            response_mime_type: "application/json",
+    for (const model of models) {
+      const geminiUrl =
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const geminiRes = await fetch(geminiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        }),
-      });
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              response_mime_type: "application/json",
+            },
+          }),
+        });
 
-      raw = await geminiRes.text();
-      console.log(`GEMINI STATUS (attempt ${attempt}):`, geminiRes.status);
-      console.log(`GEMINI RAW (attempt ${attempt}):`, raw);
+        const raw = await geminiRes.text();
+        console.log(`MODEL: ${model} / ATTEMPT: ${attempt} / STATUS: ${geminiRes.status}`);
+        console.log(`RAW: ${raw}`);
 
-      if (geminiRes.ok) {
+        if (geminiRes.ok) {
+          const data = JSON.parse(raw);
+          const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+          if (!resultText) {
+            return new Response(
+              JSON.stringify({ error: "生成結果が空です" }),
+              { status: 500, headers: { "Content-Type": "application/json" } }
+            );
+          }
+
+          return new Response(resultText, {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        lastError = raw;
+
+        // 503 のときだけ少し待って再試行
+        if (geminiRes.status === 503 && attempt < 3) {
+          await sleep(3000 * attempt);
+          continue;
+        }
+
+        // 503 以外はこのモデルでの再試行を打ち切る
         break;
       }
-
-      // 503 のときだけ待って再試行
-      if (geminiRes.status === 503 && attempt < 3) {
-        await sleep(2000 * attempt);
-        continue;
-      }
-
-      return new Response(
-        JSON.stringify({
-          error: "Gemini API error",
-          detail: raw,
-        }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
     }
 
-    const data = JSON.parse(raw);
-    const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    return new Response(
+      JSON.stringify({
+        error: "Gemini API error",
+        detail: lastError || "すべての候補モデルで失敗しました"
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
 
-    if (!resultText) {
-      return new Response(
-        JSON.stringify({ error: "生成結果が空です" }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    return new Response(resultText, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
   } catch (error) {
     return new Response(
       JSON.stringify({
         error: "サーバーエラー",
         detail: error.message,
       }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }
